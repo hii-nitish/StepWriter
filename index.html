@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step Writer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+
+    <div id="app"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        const LOCAL_STORAGE_KEY = 'step-writer-tasks';
+
+        // A simple utility to get the color class for the theme
+        const getThemeClasses = (theme) => {
+            switch (theme) {
+                case 'light':
+                    return {
+                        bg: 'bg-white',
+                        text: 'text-gray-900',
+                        cardBg: 'bg-gray-100',
+                        cardText: 'text-gray-800',
+                        inputBg: 'bg-white',
+                        border: 'border-gray-200',
+                        checkbox: 'text-blue-500',
+                        button: 'bg-blue-600 hover:bg-blue-700 text-white',
+                    };
+                case 'dark':
+                    return {
+                        bg: 'bg-gray-900',
+                        text: 'text-gray-100',
+                        cardBg: 'bg-gray-800',
+                        cardText: 'text-gray-200',
+                        inputBg: 'bg-gray-700',
+                        border: 'border-gray-700',
+                        checkbox: 'text-blue-400',
+                        button: 'bg-blue-500 hover:bg-blue-600 text-white',
+                    };
+                case 'blue':
+                    return {
+                        bg: 'bg-blue-100',
+                        text: 'text-blue-900',
+                        cardBg: 'bg-blue-200',
+                        cardText: 'text-blue-800',
+                        inputBg: 'bg-blue-50',
+                        border: 'border-blue-300',
+                        checkbox: 'text-blue-600',
+                        button: 'bg-blue-600 hover:bg-blue-700 text-white',
+                    };
+                case 'green':
+                    return {
+                        bg: 'bg-green-100',
+                        text: 'text-green-900',
+                        cardBg: 'bg-green-200',
+                        cardText: 'text-green-800',
+                        inputBg: 'bg-green-50',
+                        border: 'border-green-300',
+                        checkbox: 'text-green-600',
+                        button: 'bg-green-600 hover:bg-green-700 text-white',
+                    };
+                default:
+                    return {};
+            }
+        };
+
+        const App = () => {
+            const [tasks, setTasks] = useState([]);
+            const [newTaskTitle, setNewTaskTitle] = useState('');
+            const [currentTheme, setCurrentTheme] = useState('light');
+            const themeClasses = getThemeClasses(currentTheme);
+
+            // Load tasks from localStorage on initial render
+            useEffect(() => {
+                try {
+                    const storedTasks = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY));
+                    if (storedTasks) {
+                        setTasks(storedTasks);
+                    }
+                } catch (error) {
+                    console.error('Failed to load tasks from localStorage:', error);
+                }
+            }, []);
+
+            // Save tasks to localStorage whenever the 'tasks' state changes
+            useEffect(() => {
+                try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
+                } catch (error) {
+                    console.error('Failed to save tasks to localStorage:', error);
+                }
+            }, [tasks]);
+
+            // Handle adding a new task
+            const handleAddTask = (e) => {
+                e.preventDefault();
+                if (newTaskTitle.trim() === '') return;
+
+                const newTaskId = Date.now().toString(); // Simple unique ID
+                const newSteps = [{ id: newTaskId + '-step-1', text: '', isCompleted: false }];
+
+                setTasks([...tasks, { id: newTaskId, title: newTaskTitle, steps: newSteps }]);
+                setNewTaskTitle('');
+            };
+
+            // Handle adding a new step to a specific task
+            const handleAddStep = useCallback((taskId) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const newStepId = task.id + '-step-' + (task.steps.length + 1);
+                            const newSteps = [...task.steps, { id: newStepId, text: '', isCompleted: false }];
+                            return { ...task, steps: newSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Handle step text change
+            const handleStepTextChange = useCallback((taskId, stepId, newText) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const updatedSteps = task.steps.map(step => {
+                                if (step.id === stepId) {
+                                    return { ...step, text: newText };
+                                }
+                                return step;
+                            });
+                            return { ...task, steps: updatedSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Handle step completion toggle
+            const handleToggleStep = useCallback((taskId, stepId) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const updatedSteps = task.steps.map(step => {
+                                if (step.id === stepId) {
+                                    return { ...step, isCompleted: !step.isCompleted };
+                                }
+                                return step;
+                            });
+                            return { ...task, steps: updatedSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Calculate task status based on step completion
+            const getTaskStatus = useCallback((steps) => {
+                if (steps.length === 0) return 'Not Started';
+                const completedSteps = steps.filter(step => step.isCompleted).length;
+                if (completedSteps === 0) {
+                    return 'Not Started';
+                } else if (completedSteps === steps.length) {
+                    return 'Completed';
+                } else {
+                    return 'In Progress';
+                }
+            }, []);
+
+            // Handle task deletion
+            const handleDeleteTask = useCallback((taskId) => {
+                setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+            }, []);
+
+            // Handle step deletion
+            const handleDeleteStep = useCallback((taskId, stepId) => {
+                setTasks(prevTasks => prevTasks.map(task => {
+                    if (task.id === taskId) {
+                        return {
+                            ...task,
+                            steps: task.steps.filter(step => step.id !== stepId)
+                        };
+                    }
+                    return task;
+                }));
+            }, []);
+
+            const getStatusColor = (status) => {
+                switch (status) {
+                    case 'Completed':
+                        return 'text-green-500';
+                    case 'In Progress':
+                        return 'text-yellow-500';
+                    case 'Not Started':
+                        return 'text-red-500';
+                    default:
+                        return 'text-gray-500';
+                }
+            };
+
+            return (
+                <div className={`min-h-screen p-4 sm:p-8 ${themeClasses.bg} ${themeClasses.text} transition-colors duration-300`}>
+                    <div className={`container mx-auto max-w-4xl`}>
+                        <header className="mb-8">
+                            <h1 className="text-3xl sm:text-4xl font-bold mb-2">Step Writer</h1>
+                            <p className="text-lg opacity-80">Organize your tasks, one step at a time.</p>
+                        </header>
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end gap-2 mb-6">
+                            {/* Theme Switcher */}
+                            <button
+                                onClick={() => setCurrentTheme('light')}
+                                className="w-8 h-8 rounded-full bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                                aria-label="Light theme"
+                            ></button>
+                            <button
+                                onClick={() => setCurrentTheme('dark')}
+                                className="w-8 h-8 rounded-full bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                                aria-label="Dark theme"
+                            ></button>
+                            <button
+                                onClick={() => setCurrentTheme('blue')}
+                                className="w-8 h-8 rounded-full bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                aria-label="Blue theme"
+                            ></button>
+                            <button
+                                onClick={() => setCurrentTheme('green')}
+                                className="w-8 h-8 rounded-full bg-green-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                aria-label="Green theme"
+                            ></button>
+                        </div>
+
+                        {/* New Task Input */}
+                        <form onSubmit={handleAddTask} className="flex flex-col sm:flex-row gap-4 mb-8">
+                            <input
+                                type="text"
+                                value={newTaskTitle}
+                                onChange={(e) => setNewTaskTitle(e.target.value)}
+                                placeholder="Add a new task..."
+                                className={`flex-grow p-3 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${themeClasses.inputBg} ${themeClasses.text} transition-colors duration-300`}
+                            />
+                            <button type="submit" className={`p-3 rounded-lg font-semibold shadow-md ${themeClasses.button} transition-colors duration-300`}>
+                                Add Task
+                            </button>
+                        </form>
+
+                        {/* Task List */}
+                        <div className="space-y-6">
+                            {tasks.length > 0 ? (
+                                tasks.map(task => (
+                                    <div key={task.id} className={`p-6 rounded-xl shadow-lg border ${themeClasses.cardBg} ${themeClasses.cardText} ${themeClasses.border} transition-colors duration-300`}>
+                                        {/* Task Title and Status */}
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-xl font-bold">{task.title}</h2>
+                                            <div className={`text-sm font-medium ${getStatusColor(getTaskStatus(task.steps))}`}>
+                                                {getTaskStatus(task.steps)}
+                                            </div>
+                                        </div>
+
+                                        {/* Steps List */}
+                                        <ul className="space-y-3">
+                                            {task.steps.map(step => (
+                                                <li key={step.id} className="flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={step.isCompleted}
+                                                        onChange={() => handleToggleStep(task.id, step.id)}
+                                                        className={`form-checkbox h-5 w-5 rounded transition-all duration-300 border-2 ${themeClasses.checkbox} focus:ring-blue-500`}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={step.text}
+                                                        onChange={(e) => handleStepTextChange(task.id, step.id, e.target.value)}
+                                                        placeholder="Add a step description..."
+                                                        className={`flex-grow p-2 rounded-md ${themeClasses.inputBg} ${themeClasses.cardText} focus:outline-none focus:ring-1 focus:ring-blue-400`}
+                                                        style={{ textDecoration: step.isCompleted ? 'line-through' : 'none' }}
+                                                    />
+                                                    <button
+                                                        onClick={() => handleDeleteStep(task.id, step.id)}
+                                                        className="p-1 rounded-md text-gray-400 hover:text-red-500 transition-colors duration-200"
+                                                        aria-label="Delete step"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+
+                                        <div className="mt-4 flex gap-4">
+                                            <button
+                                                onClick={() => handleAddStep(task.id)}
+                                                className={`p-2 rounded-lg text-sm font-semibold shadow-md ${themeClasses.button} transition-colors duration-300`}
+                                            >
+                                                Add Step
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteTask(task.id)}
+                                                className="p-2 rounded-lg text-sm font-semibold bg-red-500 hover:bg-red-600 text-white shadow-md transition-colors duration-300"
+                                            >
+                                                Delete Task
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className={`p-8 text-center rounded-xl shadow-lg border ${themeClasses.cardBg} ${themeClasses.cardText} ${themeClasses.border} transition-colors duration-300`}>
+                                    <p className="text-lg opacity-70">You have no tasks. Add one above to get started!</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const domContainer = document.querySelector('#app');
+        ReactDOM.render(<App />, domContainer);
+    </script>
+</body>
+</html>

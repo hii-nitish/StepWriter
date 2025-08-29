@@ -108,7 +108,7 @@
                 return savedTheme || 'light';
             });
             const [summaries, setSummaries] = useState({});
-            const [isLoading, setIsLoading] = useState({}); // New state to manage loading for multiple features
+            const [isSummarizing, setIsSummarizing] = useState({});
             const themeClasses = getThemeClasses(currentTheme);
 
             // Load tasks from localStorage on initial render
@@ -158,10 +158,287 @@
                 const task = tasks.find(t => t.id === taskId);
                 if (!task || task.steps.length === 0) return;
 
-                setIsLoading(prev => ({ ...prev, [taskId]: { ...prev[taskId], summarize: true } }));
+                setIsSummarizing(prev => ({ ...prev, [taskId]: true })); // Set loading state for this specific task
                 const stepText = task.steps.map(s => s.text).join(', ');
                 const userPrompt = `Summarize the following steps into a single, concise sentence: "${stepText}"`;
 
                 const apiKey = "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                const payload 
+                const payload = {
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                };
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API error: ${response.status} ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+                    const generatedSummary = result?.candidates?.[0]?.content?.parts?.[0]?.text || 'Could not generate summary.';
+                    
+                    setSummaries(prev => ({ ...prev, [taskId]: generatedSummary }));
+                } catch (error) {
+                    console.error('Error generating summary:', error);
+                    setSummaries(prev => ({ ...prev, [taskId]: 'Error generating summary.' }));
+                } finally {
+                    setIsSummarizing(prev => ({ ...prev, [taskId]: false })); // Reset loading state
+                }
+            };
+
+            // Handle adding a new step to a specific task
+            const handleAddStep = useCallback((taskId) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const newStepId = task.id + '-step-' + (task.steps.length + 1);
+                            const newSteps = [...task.steps, { id: newStepId, text: '', isCompleted: false }];
+                            return { ...task, steps: newSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Handle step text change
+            const handleStepTextChange = useCallback((taskId, stepId, newText) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const updatedSteps = task.steps.map(step => {
+                                if (step.id === stepId) {
+                                    return { ...step, text: newText };
+                                }
+                                return step;
+                            });
+                            return { ...task, steps: updatedSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Handle step completion toggle
+            const handleToggleStep = useCallback((taskId, stepId) => {
+                setTasks(prevTasks => {
+                    return prevTasks.map(task => {
+                        if (task.id === taskId) {
+                            const updatedSteps = task.steps.map(step => {
+                                if (step.id === stepId) {
+                                    return { ...step, isCompleted: !step.isCompleted };
+                                }
+                                return step;
+                            });
+                            return { ...task, steps: updatedSteps };
+                        }
+                        return task;
+                    });
+                });
+            }, []);
+
+            // Calculate task status based on step completion
+            const getTaskStatus = useCallback((steps) => {
+                if (steps.length === 0) return 'Not Started';
+                const completedSteps = steps.filter(step => step.isCompleted).length;
+                if (completedSteps === 0) {
+                    return 'Not Started';
+                } else if (completedSteps === steps.length) {
+                    return 'Completed';
+                } else {
+                    return 'In Progress';
+                }
+            }, []);
+
+            // Handle task deletion
+            const handleDeleteTask = useCallback((taskId) => {
+                setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+            }, []);
+
+            // Handle step deletion
+            const handleDeleteStep = useCallback((taskId, stepId) => {
+                setTasks(prevTasks => prevTasks.map(task => {
+                    if (task.id === taskId) {
+                        return {
+                            ...task,
+                            steps: task.steps.filter(step => step.id !== stepId)
+                        };
+                    }
+                    return task;
+                }));
+            }, []);
+
+            const getStatusColor = (status) => {
+                switch (status) {
+                    case 'Completed':
+                        return 'text-green-500';
+                    case 'In Progress':
+                        return 'text-yellow-500';
+                    case 'Not Started':
+                        return 'text-red-500';
+                    default:
+                        return 'text-gray-500';
+                }
+            };
+
+            return (
+                <div className={`min-h-screen p-4 sm:p-8 ${themeClasses.bg} ${themeClasses.text} transition-colors duration-300 w-full flex flex-col justify-center items-center`}>
+                    <div className="container mx-auto max-w-4xl">
+                        <header className="mb-8 text-center">
+                            <h1 className="text-3xl sm:text-4xl font-bold mb-2">Step Writer</h1>
+                            <p className="text-lg opacity-80">Organize your tasks, one step at a time.</p>
+                        </header>
+
+                        {/* New Task Input with Generate button */}
+                        <form onSubmit={handleAddTask} className="flex flex-col sm:flex-row gap-4 mb-8">
+                            <input
+                                type="text"
+                                value={newTaskTitle}
+                                onChange={(e) => setNewTaskTitle(e.target.value)}
+                                placeholder="Add a new task..."
+                                className={`flex-grow p-3 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${themeClasses.inputBg} ${themeClasses.text} transition-colors duration-300`}
+                            />
+                            <div className="flex gap-4">
+                                <button type="submit" className={`p-3 rounded-lg font-semibold shadow-md ${themeClasses.button} transition-colors duration-300`}>
+                                    Add Task
+                                </button>
+                            </div>
+                        </form>
+
+                        {/* Task List */}
+                        <div className="space-y-6">
+                            {tasks.length > 0 ? (
+                                tasks.map(task => (
+                                    <div key={task.id} className={`p-6 rounded-xl shadow-lg border ${themeClasses.cardBg} ${themeClasses.cardText} ${themeClasses.border} transition-colors duration-300`}>
+                                        {/* Task Title and Status */}
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-xl font-bold">{task.title}</h2>
+                                            <div className={`text-sm font-medium ${getStatusColor(getTaskStatus(task.steps))}`}>
+                                                {getTaskStatus(task.steps)}
+                                            </div>
+                                        </div>
+
+                                        {/* Steps List */}
+                                        <ul className="space-y-3">
+                                            {task.steps.map(step => (
+                                                <li key={step.id} className="flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={step.isCompleted}
+                                                        onChange={() => handleToggleStep(task.id, step.id)}
+                                                        className={`form-checkbox h-5 w-5 rounded transition-all duration-300 border-2 ${themeClasses.checkbox} focus:ring-blue-500`}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={step.text}
+                                                        onChange={(e) => handleStepTextChange(task.id, step.id, e.target.value)}
+                                                        placeholder="Add a step description..."
+                                                        className={`flex-grow p-2 rounded-md ${themeClasses.inputBg} ${themeClasses.cardText} focus:outline-none focus:ring-1 focus:ring-blue-400`}
+                                                        style={{ textDecoration: step.isCompleted ? 'line-through' : 'none' }}
+                                                    />
+                                                    <button
+                                                        onClick={() => handleDeleteStep(task.id, step.id)}
+                                                        className="p-1 rounded-md text-gray-400 hover:text-red-500 transition-colors duration-200"
+                                                        aria-label="Delete step"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+
+                                        <div className="mt-4 flex flex-wrap gap-4 items-center">
+                                            <button
+                                                onClick={() => handleAddStep(task.id)}
+                                                className={`p-2 rounded-lg text-sm font-semibold shadow-md ${themeClasses.button} transition-colors duration-300`}
+                                            >
+                                                Add Step
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteTask(task.id)}
+                                                className="p-2 rounded-lg text-sm font-semibold bg-red-500 hover:bg-red-600 text-white shadow-md transition-colors duration-300"
+                                            >
+                                                Delete Task
+                                            </button>
+                                            <button
+                                                onClick={() => handleSummarizeSteps(task.id)}
+                                                className={`p-2 rounded-lg text-sm font-semibold shadow-md ${themeClasses.buttonSummary} transition-colors duration-300`}
+                                                disabled={isSummarizing[task.id] || task.steps.length === 0 || task.steps.every(step => step.text === '')}
+                                            >
+                                                {isSummarizing[task.id] ? 'Summarizing...' : 'Summarize Steps ✨'}
+                                            </button>
+                                        </div>
+                                        {/* Display the summary if it exists */}
+                                        {summaries[task.id] && (
+                                            <div className={`mt-4 p-3 rounded-md border ${themeClasses.border} ${themeClasses.cardBg} transition-colors duration-300`}>
+                                                <div className="flex justify-between items-center">
+                                                    <p className="text-sm italic opacity-80">{summaries[task.id]}</p>
+                                                    <button
+                                                        onClick={() => setSummaries(prev => { const newSummaries = { ...prev }; delete newSummaries[task.id]; return newSummaries; })}
+                                                        className="text-gray-400 hover:text-red-500 transition-colors duration-200"
+                                                        aria-label="Close summary"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className={`p-8 text-center rounded-xl shadow-lg border ${themeClasses.cardBg} ${themeClasses.cardText} ${themeClasses.border} transition-colors duration-300`}>
+                                    <p className="text-lg opacity-70">You have no tasks. Add one above to get started!</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    {/* Theme Switcher in the bottom right corner */}
+                    <div className="fixed bottom-4 right-4 flex gap-2">
+                        <button
+                            onClick={() => setCurrentTheme('light')}
+                            className="w-8 h-8 rounded-full bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                            aria-label="Light theme"
+                        ></button>
+                        <button
+                            onClick={() => setCurrentTheme('dark')}
+                            className="w-8 h-8 rounded-full bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                            aria-label="Dark theme"
+                        ></button>
+                        <button
+                            onClick={() => setCurrentTheme('blue')}
+                            className="w-8 h-8 rounded-full bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            aria-label="Blue theme"
+                        ></button>
+                        <button
+                            onClick={() => setCurrentTheme('green')}
+                            className="w-8 h-8 rounded-full bg-green-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                            aria-label="Green theme"
+                        ></button>
+                        <button
+                            onClick={() => setCurrentTheme('purple')}
+                            className="w-8 h-8 rounded-full bg-purple-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                            aria-label="Purple theme"
+                        ></button>
+                        <button
+                            onClick={() => setCurrentTheme('orange')}
+                            className="w-8 h-8 rounded-full bg-orange-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
+                            aria-label="Orange theme"
+                        ></button>
+                    </div>
+                </div>
+            );
+        };
+
+        const domContainer = document.querySelector('#app');
+        ReactDOM.render(<App />, domContainer);
+    </script>
+</body>
+</html>
